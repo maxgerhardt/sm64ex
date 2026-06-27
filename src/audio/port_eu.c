@@ -102,14 +102,46 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
     gAudioRandom = ((gAudioRandom + gAudioFrameCount) * gAudioFrameCount);
     gAudioRandom = gAudioRandom + writtenCmds / 8;
 
+    // Measure the actual PCM that synthesis just produced (stereo s16) and how
+    // many notes are live. This separates "synthesis went silent" from a
+    // downstream/output problem, and pinpoints the exact cutout frame.
+    s32 maxAmp = 0;
+    {
+        u32 si;
+        for (si = 0; si < num_samples * 2; si++) {
+            s32 v = samples[si];
+            if (v < 0) v = -v;
+            if (v > maxAmp) maxAmp = v;
+        }
+    }
+    s32 activeNotes = 0;
+    {
+        s32 ni;
+        for (ni = 0; ni < gMaxSimultaneousNotes; ni++) {
+            if (gNotes[ni].noteSubEu.enabled) {
+                activeNotes++;
+            }
+        }
+    }
+    {
+        static s32 sPrevSilent = -1;
+        s32 isSilent = (maxAmp == 0);
+        if (isSilent != sPrevSilent) {
+            eu_audio_log("OUTPUT %s frame=%u maxAmp=%d activeNotes=%d\n",
+                         isSilent ? "SILENT" : "active", (unsigned) gAudioFrameCount,
+                         (int) maxAmp, (int) activeNotes);
+            sPrevSilent = isSilent;
+        }
+    }
+
     // Heartbeat every 32 audio buffers (~0.5s) snapshotting the seq players.
     if ((gAudioFrameCount & 0x1f) == 0) {
         s32 p;
-        eu_audio_log("HB frame=%u dmaCnt=%d reset=%d q1valid=%d flush=%u drain=%u written=%d\n",
+        eu_audio_log("HB frame=%u dmaCnt=%d reset=%d q1valid=%d flush=%u drain=%u written=%d maxAmp=%d notes=%d\n",
                      (unsigned) gAudioFrameCount, (int) gCurrAudioFrameDmaCount,
                      (int) gAudioResetStatus, (int) OSMesgQueues[1]->validCount,
                      (unsigned) gEuDbgFlushCount, (unsigned) gEuDbgDrainCount,
-                     (int) writtenCmds);
+                     (int) writtenCmds, (int) maxAmp, (int) activeNotes);
         for (p = 0; p < SEQUENCE_PLAYERS; p++) {
             struct SequencePlayer *sp = &gSequencePlayers[p];
             eu_audio_log("  SP%d en=%d mute=%d st=%d seqId=%d bank=%d seqDma=%d bankDma=%d "
