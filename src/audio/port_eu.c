@@ -33,6 +33,19 @@ void eu_audio_log(const char *fmt, ...) {
     fflush(sEuAudioLog); // flush every line so a crash still leaves a record
 }
 
+// Walk a circular list by pointer and return the actual reachable node count
+// (capped). Reveals heads that have been detached from their notes, where the
+// stored u.count lies because audio_list_remove() never decrements it.
+static s32 eu_dbg_walk(struct AudioListItem *head) {
+    s32 n = 0;
+    struct AudioListItem *c = head->next;
+    while (c != head && c != NULL && n < 64) {
+        n++;
+        c = c->next;
+    }
+    return n;
+}
+
 // Producer/consumer counters for the OSMesgQueues[1] command pipeline.
 u32 gEuDbgFlushCount = 0; // times func_802ad7a0() flushed a command range
 u32 gEuDbgDrainCount = 0; // times create_next_audio_buffer() drained one
@@ -179,6 +192,22 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
                          (int) gNoteFreeLists.releasing.u.count,
                          (int) gNoteFreeLists.active.u.count,
                          (int) floating, (int) priDisabled, (int) gMaxSimultaneousNotes);
+        }
+        // Physical (pointer-walked) occupancy of the global lists vs the stored
+        // counts above, plus how many notes' pool pointer == &gNoteFreeLists.
+        {
+            s32 ni2, inGlobal = 0;
+            for (ni2 = 0; ni2 < gMaxSimultaneousNotes; ni2++) {
+                if (gNotes[ni2].listItem.pool == &gNoteFreeLists) {
+                    inGlobal++;
+                }
+            }
+            eu_audio_log("  PHYS global dis=%d dec=%d rel=%d act=%d notesPoolEqGlobal=%d\n",
+                         (int) eu_dbg_walk(&gNoteFreeLists.disabled),
+                         (int) eu_dbg_walk(&gNoteFreeLists.decaying),
+                         (int) eu_dbg_walk(&gNoteFreeLists.releasing),
+                         (int) eu_dbg_walk(&gNoteFreeLists.active),
+                         (int) inGlobal);
         }
         // Per-pool breakdown for the level player (SP0) and its channels: shows
         // where freed notes actually park vs. where alloc_note() looks for them.
