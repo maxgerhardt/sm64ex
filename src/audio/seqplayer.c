@@ -1170,6 +1170,13 @@ void sequence_channel_process_script(struct SequenceChannel *seqChannel) {
                         // seqChannel->notePool should live in a saved register
                         note_pool_clear(&seqChannel->notePool);
                         temp = m64_read_u8(state);
+#ifdef VERSION_EU
+                        eu_audio_log("RESERVE ch=%ld player=%ld count=%d frame=%u\n",
+                                     (long) (seqChannel - gSequenceChannels),
+                                     (long) (seqChannel->seqPlayer == NULL ? -1
+                                             : seqChannel->seqPlayer - gSequencePlayers),
+                                     (int) temp, (unsigned) gAudioFrameCount);
+#endif
                         note_pool_fill(&seqChannel->notePool, temp);
                         break;
 
@@ -1177,6 +1184,11 @@ void sequence_channel_process_script(struct SequenceChannel *seqChannel) {
                     case 0xf0: // chan_unreservenotes
 #else
                     case 0xf1: // chan_unreservenotes
+#endif
+#ifdef VERSION_EU
+                        eu_audio_log("UNRESERVE ch=%ld frame=%u\n",
+                                     (long) (seqChannel - gSequenceChannels),
+                                     (unsigned) gAudioFrameCount);
 #endif
                         note_pool_clear(&seqChannel->notePool);
                         break;
