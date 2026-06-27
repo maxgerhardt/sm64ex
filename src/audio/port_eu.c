@@ -251,6 +251,33 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
             }
             eu_audio_log("  NOTEOWN %s\n", line);
         }
+        // Walk the physical sublists of the pool that owns note[0] (the pool the
+        // notes are stranded in), and dump every note's priority/ADSR state.
+        // alloc_note() checks disabled/decaying/active but NOT releasing, so if
+        // the notes pile up on 'releasing' they are unreachable forever.
+        {
+            struct NotePool *op = gNotes[0].listItem.pool;
+            if (op != NULL) {
+                eu_audio_log("  OWNPOOL phys dis=%d dec=%d rel=%d act=%d (cnt dis=%d dec=%d rel=%d act=%d)\n",
+                             (int) eu_dbg_walk(&op->disabled), (int) eu_dbg_walk(&op->decaying),
+                             (int) eu_dbg_walk(&op->releasing), (int) eu_dbg_walk(&op->active),
+                             (int) op->disabled.u.count, (int) op->decaying.u.count,
+                             (int) op->releasing.u.count, (int) op->active.u.count);
+            }
+            {
+                char l2[640];
+                s32 o2 = 0, m;
+                l2[0] = '\0';
+                for (m = 0; m < gMaxSimultaneousNotes; m++) {
+                    o2 += snprintf(l2 + o2, sizeof(l2) - o2, "%d/%d ",
+                                   (int) gNotes[m].priority, (int) gNotes[m].adsr.state);
+                    if (o2 > (s32) sizeof(l2) - 12) {
+                        break;
+                    }
+                }
+                eu_audio_log("  NOTEST(pri/adsr) %s\n", l2);
+            }
+        }
         // Per-pool breakdown for the level player (SP0) and its channels: shows
         // where freed notes actually park vs. where alloc_note() looks for them.
         {
