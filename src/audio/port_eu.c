@@ -180,6 +180,25 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
                          (int) gNoteFreeLists.active.u.count,
                          (int) floating, (int) priDisabled, (int) gMaxSimultaneousNotes);
         }
+        // Per-pool breakdown for the level player (SP0) and its channels: shows
+        // where freed notes actually park vs. where alloc_note() looks for them.
+        {
+            struct SequencePlayer *sp0 = &gSequencePlayers[0];
+            s32 ch;
+            eu_audio_log("  SP0pool policy=%d note[dis=%d dec=%d rel=%d act=%d]\n",
+                         (int) sp0->noteAllocPolicy,
+                         (int) sp0->notePool.disabled.u.count, (int) sp0->notePool.decaying.u.count,
+                         (int) sp0->notePool.releasing.u.count, (int) sp0->notePool.active.u.count);
+            for (ch = 0; ch < CHANNELS_MAX; ch++) {
+                struct SequenceChannel *c = sp0->channels[ch];
+                if (IS_SEQUENCE_CHANNEL_VALID(c) && c->enabled) {
+                    eu_audio_log("    CH%d policy=%d note[dis=%d dec=%d rel=%d act=%d]\n",
+                                 (int) ch, (int) c->noteAllocPolicy,
+                                 (int) c->notePool.disabled.u.count, (int) c->notePool.decaying.u.count,
+                                 (int) c->notePool.releasing.u.count, (int) c->notePool.active.u.count);
+                }
+            }
+        }
     }
 }
 
