@@ -154,6 +154,27 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
                          (int) gSeqLoadStatus[sp->seqId],
                          (int) gBankLoadStatus[sp->defaultBank[0]]);
         }
+        // Note free-list occupancy. alloc_note() draws from disabled/decaying/
+        // active; if they all drain to 0 the sequencer can't spawn new notes
+        // (permanent silence while it keeps running). "floating" = notes not on
+        // any list (prev==NULL) -> leaked, the signature of a missing free.
+        {
+            s32 ni, floating = 0, priDisabled = 0;
+            for (ni = 0; ni < gMaxSimultaneousNotes; ni++) {
+                if (gNotes[ni].listItem.prev == NULL) {
+                    floating++;
+                }
+                if (gNotes[ni].priority == NOTE_PRIORITY_DISABLED) {
+                    priDisabled++;
+                }
+            }
+            eu_audio_log("  NOTES free[dis=%d dec=%d rel=%d act=%d] floating=%d priDisabled=%d max=%d\n",
+                         (int) gNoteFreeLists.disabled.u.count,
+                         (int) gNoteFreeLists.decaying.u.count,
+                         (int) gNoteFreeLists.releasing.u.count,
+                         (int) gNoteFreeLists.active.u.count,
+                         (int) floating, (int) priDisabled, (int) gMaxSimultaneousNotes);
+        }
     }
 }
 
