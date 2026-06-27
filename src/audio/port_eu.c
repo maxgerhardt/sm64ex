@@ -209,6 +209,48 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
                          (int) eu_dbg_walk(&gNoteFreeLists.active),
                          (int) inGlobal);
         }
+        // Identify the actual owning pool of every note by comparing its
+        // listItem.pool against the global pool, each seq player's pool, and
+        // every channel pool in gSequenceChannels[]. Token legend:
+        //   G   = global free list
+        //   Pn  = seq player n's notePool
+        //   Cn  = channel n's notePool ; Cnx = that channel is orphaned
+        //         (seqPlayer == NULL), i.e. a pool that should have been cleared
+        {
+            char line[640];
+            s32 off = 0, k;
+            line[0] = '\0';
+            for (k = 0; k < gMaxSimultaneousNotes; k++) {
+                void *pl = (void *) gNotes[k].listItem.pool;
+                char tok[24];
+                if (pl == (void *) &gNoteFreeLists) {
+                    snprintf(tok, sizeof tok, "G");
+                } else {
+                    s32 found = 0, pp, ci;
+                    for (pp = 0; pp < SEQUENCE_PLAYERS && !found; pp++) {
+                        if (pl == (void *) &gSequencePlayers[pp].notePool) {
+                            snprintf(tok, sizeof tok, "P%d", (int) pp);
+                            found = 1;
+                        }
+                    }
+                    for (ci = 0; ci < SEQUENCE_CHANNELS && !found; ci++) {
+                        if (pl == (void *) &gSequenceChannels[ci].notePool) {
+                            snprintf(tok, sizeof tok, "C%d%s", (int) ci,
+                                     gSequenceChannels[ci].seqPlayer == NULL ? "x" : "");
+                            found = 1;
+                        }
+                    }
+                    if (!found) {
+                        snprintf(tok, sizeof tok, "?");
+                    }
+                }
+                off += snprintf(line + off, sizeof(line) - off, "%s ", tok);
+                if (off > (s32) sizeof(line) - 28) {
+                    break;
+                }
+            }
+            eu_audio_log("  NOTEOWN %s\n", line);
+        }
         // Per-pool breakdown for the level player (SP0) and its channels: shows
         // where freed notes actually park vs. where alloc_note() looks for them.
         {
