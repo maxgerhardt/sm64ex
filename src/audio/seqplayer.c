@@ -7,6 +7,10 @@
 #include "load.h"
 #include "seqplayer.h"
 
+#ifdef VERSION_EU
+extern void eu_audio_log(const char *fmt, ...);
+#endif
+
 #define PORTAMENTO_IS_SPECIAL(x) ((x).mode & 0x80)
 #define PORTAMENTO_MODE(x) ((x).mode & ~0x80)
 #define PORTAMENTO_MODE_1 1
@@ -274,6 +278,12 @@ void sequence_channel_enable(struct SequencePlayer *seqPlayer, u8 channelIndex, 
 }
 
 void sequence_player_disable(struct SequencePlayer *seqPlayer) {
+#ifdef VERSION_EU
+    eu_audio_log("DISABLE seqId=%d bank=%d wasEnabled=%d finished=%d frame=%u\n",
+                 (int) seqPlayer->seqId, (int) seqPlayer->defaultBank[0],
+                 (int) seqPlayer->enabled, (int) seqPlayer->finished,
+                 (unsigned) gAudioFrameCount);
+#endif
     sequence_player_disable_channels(seqPlayer, 0xffff);
     note_pool_clear(&seqPlayer->notePool);
     seqPlayer->finished = TRUE;
@@ -1560,6 +1570,12 @@ void sequence_player_process_sequence(struct SequencePlayer *seqPlayer) {
     if (seqPlayer->bankDmaInProgress == TRUE) {
 #ifdef VERSION_EU
         if (osRecvMesg(&seqPlayer->bankDmaMesgQueue, NULL, 0) == -1) {
+            static u32 sBankStallLog = 0;
+            if ((sBankStallLog++ & 0x3f) == 0) {
+                eu_audio_log("STALL bankDma seqId=%d loadingBank=%d remaining=%ld frame=%u\n",
+                             (int) seqPlayer->seqId, (int) seqPlayer->loadingBankId,
+                             (long) seqPlayer->bankDmaRemaining, (unsigned) gAudioFrameCount);
+            }
             return;
         }
         if (seqPlayer->bankDmaRemaining == 0) {
@@ -1603,6 +1619,11 @@ void sequence_player_process_sequence(struct SequencePlayer *seqPlayer) {
     if (seqPlayer->seqDmaInProgress == TRUE) {
 #ifdef VERSION_EU
         if (osRecvMesg(&seqPlayer->seqDmaMesgQueue, NULL, 0) == -1) {
+            static u32 sSeqStallLog = 0;
+            if ((sSeqStallLog++ & 0x3f) == 0) {
+                eu_audio_log("STALL seqDma seqId=%d frame=%u\n",
+                             (int) seqPlayer->seqId, (unsigned) gAudioFrameCount);
+            }
             return;
         }
 #ifndef AVOID_UB
@@ -1621,6 +1642,12 @@ void sequence_player_process_sequence(struct SequencePlayer *seqPlayer) {
     // If discarded, bail out.
     if (IS_SEQ_LOAD_COMPLETE(seqPlayer->seqId) == FALSE
         || IS_BANK_LOAD_COMPLETE(seqPlayer->defaultBank[0]) == FALSE) {
+#ifdef VERSION_EU
+        eu_audio_log("DISABLE(load-incomplete) seqId=%d seqLd=%d bank=%d bankLd=%d frame=%u\n",
+                     (int) seqPlayer->seqId, (int) gSeqLoadStatus[seqPlayer->seqId],
+                     (int) seqPlayer->defaultBank[0], (int) gBankLoadStatus[seqPlayer->defaultBank[0]],
+                     (unsigned) gAudioFrameCount);
+#endif
         sequence_player_disable(seqPlayer);
         return;
     }

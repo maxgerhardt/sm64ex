@@ -209,6 +209,10 @@ s32 gAudioErrorFlags = 0;
 #endif
 s32 sGameLoopTicked = 0;
 
+#ifdef VERSION_EU
+extern void eu_audio_log(const char *fmt, ...);
+#endif
+
 // Dialog sounds
 // The US difference is the sound for DIALOG_037 ("I win! You lose! Ha ha ha ha!
 // You're no slouch, but I'm a better sledder! Better luck next time!"), spoken
@@ -626,6 +630,7 @@ const char unusedErrorStr2[] = "specchg error\n";
 void audio_reset_session_eu(s32 presetId) {
     OSMesg mesg;
 
+    eu_audio_log("audio_reset_session_eu request preset=%d\n", (int) presetId);
     osRecvMesg(OSMesgQueues[3], &mesg, OS_MESG_NOBLOCK);
     osSendMesg(OSMesgQueues[2], (OSMesg) presetId, OS_MESG_NOBLOCK);
     osRecvMesg(OSMesgQueues[3], &mesg, OS_MESG_BLOCK);

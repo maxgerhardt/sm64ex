@@ -1,4 +1,6 @@
 #include <ultra64.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include "internal.h"
 #include "load.h"
 #include "data.h"
@@ -7,6 +9,35 @@
 #include "heap.h"
 
 #ifdef VERSION_EU
+
+// ---------------------------------------------------------------------------
+// EU audio debug logging (temporary diagnostic instrumentation)
+// Writes to "eu_audio_debug.log" in the current working directory.
+// ---------------------------------------------------------------------------
+extern volatile s32 gCurrAudioFrameDmaCount;
+extern u8 gSeqLoadStatus[0x100];
+extern u8 gBankLoadStatus[0x40];
+
+static FILE *sEuAudioLog = NULL;
+
+void eu_audio_log(const char *fmt, ...) {
+    if (sEuAudioLog == NULL) {
+        sEuAudioLog = fopen("eu_audio_debug.log", "w");
+        if (sEuAudioLog == NULL) {
+            return;
+        }
+        fprintf(stderr, "[eu_audio] writing diagnostics to eu_audio_debug.log\n");
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(sEuAudioLog, fmt, ap);
+    va_end(ap);
+    fflush(sEuAudioLog); // flush every line so a crash still leaves a record
+}
+
+// Producer/consumer counters for the OSMesgQueues[1] command pipeline.
+u32 gEuDbgFlushCount = 0; // times func_802ad7a0() flushed a command range
+u32 gEuDbgDrainCount = 0; // times create_next_audio_buffer() drained one
 
 #ifdef __sgi
 #define stubbed_printf
@@ -46,18 +77,46 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
     if (osRecvMesg(OSMesgQueues[2], &msg, 0) != -1) {
         gAudioResetPresetIdToLoad = (u8) (s32) msg;
         gAudioResetStatus = 5;
+        eu_audio_log("RESET recv preset=%d frame=%u\n",
+                     (int) (u8) (s32) msg, (unsigned) gAudioFrameCount);
     }
 
     if (gAudioResetStatus != 0) {
+        eu_audio_log("RESET run status=%d preset=%d frame=%u\n",
+                     (int) gAudioResetStatus, (int) gAudioResetPresetIdToLoad,
+                     (unsigned) gAudioFrameCount);
         audio_reset_session();
         gAudioResetStatus = 0;
     }
     if (osRecvMesg(OSMesgQueues[1], &msg, OS_MESG_NOBLOCK) != -1) {
+        gEuDbgDrainCount++;
         func_802ad7ec((u32) msg);
     }
     synthesis_execute(gAudioCmdBuffers[0], &writtenCmds, samples, num_samples);
     gAudioRandom = ((gAudioRandom + gAudioFrameCount) * gAudioFrameCount);
     gAudioRandom = gAudioRandom + writtenCmds / 8;
+
+    // Heartbeat every 32 audio buffers (~0.5s) snapshotting the seq players.
+    if ((gAudioFrameCount & 0x1f) == 0) {
+        s32 p;
+        eu_audio_log("HB frame=%u dmaCnt=%d reset=%d q1valid=%d flush=%u drain=%u written=%d\n",
+                     (unsigned) gAudioFrameCount, (int) gCurrAudioFrameDmaCount,
+                     (int) gAudioResetStatus, (int) OSMesgQueues[1]->validCount,
+                     (unsigned) gEuDbgFlushCount, (unsigned) gEuDbgDrainCount,
+                     (int) writtenCmds);
+        for (p = 0; p < SEQUENCE_PLAYERS; p++) {
+            struct SequencePlayer *sp = &gSequencePlayers[p];
+            eu_audio_log("  SP%d en=%d mute=%d st=%d seqId=%d bank=%d seqDma=%d bankDma=%d "
+                         "fadeVol=%.4f fadeVel=%.5f tempo=%d tempoAcc=%u seqLd=%d bankLd=%d\n",
+                         (int) p, (int) sp->enabled, (int) sp->muted, (int) sp->state,
+                         (int) sp->seqId, (int) sp->defaultBank[0],
+                         (int) sp->seqDmaInProgress, (int) sp->bankDmaInProgress,
+                         (double) sp->fadeVolume, (double) sp->fadeVelocity,
+                         (int) sp->tempo, (unsigned) sp->tempoAcc,
+                         (int) gSeqLoadStatus[sp->seqId],
+                         (int) gBankLoadStatus[sp->defaultBank[0]]);
+        }
+    }
 }
 
 void eu_process_audio_cmd(struct EuAudioCmd *cmd) {
@@ -71,11 +130,17 @@ void eu_process_audio_cmd(struct EuAudioCmd *cmd) {
     case 0x82:
     case 0x88:
         // load_sequence(arg1, arg2, 0);
+        eu_audio_log("CMD load_sequence player=%d seqId=%d async=%d fadeIn=%d frame=%u\n",
+                     (int) cmd->u.s.arg1, (int) cmd->u.s.arg2, (int) cmd->u.s.arg3,
+                     (int) cmd->u2.as_s32, (unsigned) gAudioFrameCount);
         load_sequence(cmd->u.s.arg1, cmd->u.s.arg2, cmd->u.s.arg3);
         func_8031D690(cmd->u.s.arg1, cmd->u2.as_s32);
         break;
 
     case 0x83:
+        eu_audio_log("CMD stop/fade player=%d fadeOut=%d enabled=%d frame=%u\n",
+                     (int) cmd->u.s.arg1, (int) cmd->u2.as_s32,
+                     (int) gSequencePlayers[cmd->u.s.arg1].enabled, (unsigned) gAudioFrameCount);
         if (gSequencePlayers[cmd->u.s.arg1].enabled != FALSE) {
             if (cmd->u2.as_s32 == 0) {
                 sequence_player_disable(&gSequencePlayers[cmd->u.s.arg1]);
@@ -166,9 +231,16 @@ void func_802ad770(u32 arg0, s8 arg1) {
 }
 
 void func_802ad7a0(void) {
-    osSendMesg(OSMesgQueues[1],
+    s32 sendResult = osSendMesg(OSMesgQueues[1],
             (OSMesg)(u32)((D_EU_80302014 & 0xff) << 8 | (D_EU_80302010 & 0xff)),
             OS_MESG_NOBLOCK);
+    gEuDbgFlushCount++;
+    if (sendResult == -1) {
+        // Command-queue overflow: a flush was dropped (consumer fell behind).
+        eu_audio_log("FLUSH DROPPED (q1 full) start=%u end=%u valid=%d frame=%u\n",
+                     (unsigned) (D_EU_80302014 & 0xff), (unsigned) (D_EU_80302010 & 0xff),
+                     (int) OSMesgQueues[1]->validCount, (unsigned) gAudioFrameCount);
+    }
     D_EU_80302014 = D_EU_80302010;
 }
 

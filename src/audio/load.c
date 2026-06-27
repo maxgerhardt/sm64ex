@@ -11,6 +11,10 @@
 
 #define ALIGN16(val) (((val) + 0xF) & ~0xF)
 
+#ifdef VERSION_EU
+extern void eu_audio_log(const char *fmt, ...);
+#endif
+
 struct SharedDma {
     /*0x0*/ u8 *buffer;       // target, points to pre-allocated buffer
     /*0x4*/ uintptr_t source; // device address
@@ -277,6 +281,12 @@ void *dma_sample_data(uintptr_t devAddr, u32 size, s32 arg2, u8 *arg3) {
     osInvalDCache(dma->buffer, transfer);
 #endif
 #ifdef VERSION_EU
+    if (gCurrAudioFrameDmaCount >= 0x38) {
+        // Approaching / exceeding AUDIO_FRAME_DMA_QUEUE_SIZE (0x40). If this keeps
+        // climbing the index into gCurrAudioFrameDmaIoMesgBufs[0x40] goes OOB.
+        eu_audio_log("DMA cnt=%d (cap=0x40) new sample dma dev=%llx\n",
+                     (int) gCurrAudioFrameDmaCount, (unsigned long long) dmaDevAddr);
+    }
     osPiStartDma(&gCurrAudioFrameDmaIoMesgBufs[gCurrAudioFrameDmaCount++], OS_MESG_PRI_NORMAL,
                  OS_READ, dmaDevAddr, dma->buffer, transfer, &gCurrAudioFrameDmaQueue);
     *arg3 = dmaIndex;
