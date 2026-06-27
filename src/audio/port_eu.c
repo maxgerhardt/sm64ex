@@ -71,6 +71,14 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
     s32 writtenCmds;
     OSMesg msg;
     gAudioFrameCount++;
+    // On the N64 this per-audio-frame counter is awaited and zeroed inside
+    // create_next_audio_frame_task(), which this port stubs out to return NULL.
+    // Without the reset, dma_sample_data() keeps incrementing it and indexes
+    // gCurrAudioFrameDmaIoMesgBufs[]/gCurrAudioFrameDmaMesgBufs[] (each of size
+    // AUDIO_FRAME_DMA_QUEUE_SIZE == 0x40) out of bounds after ~1-2 s, corrupting
+    // adjacent audio memory and silencing output. The port's DMA is a synchronous
+    // memcpy, so there is nothing to await here -- just reset the counter.
+    gCurrAudioFrameDmaCount = 0;
     decrease_sample_dma_ttls();
     if (osRecvMesg(OSMesgQueues[2], &msg, 0) != -1) {
         gAudioResetPresetIdToLoad = (u8) (s32) msg;
