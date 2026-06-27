@@ -37,6 +37,10 @@ void eu_audio_log(const char *fmt, ...) {
 u32 gEuDbgFlushCount = 0; // times func_802ad7a0() flushed a command range
 u32 gEuDbgDrainCount = 0; // times create_next_audio_buffer() drained one
 
+// alloc_note() request/failure counters (defined in seqplayer.c).
+extern u32 gEuDbgAllocCalls;
+extern u32 gEuDbgAllocNull;
+
 #ifdef __sgi
 #define stubbed_printf
 #else
@@ -137,11 +141,12 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
     // Heartbeat every 32 audio buffers (~0.5s) snapshotting the seq players.
     if ((gAudioFrameCount & 0x1f) == 0) {
         s32 p;
-        eu_audio_log("HB frame=%u dmaCnt=%d reset=%d q1valid=%d flush=%u drain=%u written=%d maxAmp=%d notes=%d\n",
+        eu_audio_log("HB frame=%u dmaCnt=%d reset=%d q1valid=%d flush=%u drain=%u written=%d maxAmp=%d notes=%d allocCalls=%u allocNull=%u\n",
                      (unsigned) gAudioFrameCount, (int) gCurrAudioFrameDmaCount,
                      (int) gAudioResetStatus, (int) OSMesgQueues[1]->validCount,
                      (unsigned) gEuDbgFlushCount, (unsigned) gEuDbgDrainCount,
-                     (int) writtenCmds, (int) maxAmp, (int) activeNotes);
+                     (int) writtenCmds, (int) maxAmp, (int) activeNotes,
+                     (unsigned) gEuDbgAllocCalls, (unsigned) gEuDbgAllocNull);
         for (p = 0; p < SEQUENCE_PLAYERS; p++) {
             struct SequencePlayer *sp = &gSequencePlayers[p];
             eu_audio_log("  SP%d en=%d mute=%d st=%d seqId=%d bank=%d seqDma=%d bankDma=%d "

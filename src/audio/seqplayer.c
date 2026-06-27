@@ -9,6 +9,8 @@
 
 #ifdef VERSION_EU
 extern void eu_audio_log(const char *fmt, ...);
+u32 gEuDbgAllocCalls = 0; // times the layer script asked alloc_note() for a note
+u32 gEuDbgAllocNull = 0;  // ... and got NULL back (no free note available)
 #endif
 
 #define PORTAMENTO_IS_SPECIAL(x) ((x).mode & 0x80)
@@ -891,6 +893,12 @@ void seq_channel_layer_process_script(struct SequenceChannelLayer *layer) {
 
     if (cmd != FALSE) {
         layer->note = alloc_note(layer);
+#ifdef VERSION_EU
+        gEuDbgAllocCalls++;
+        if (layer->note == NULL) {
+            gEuDbgAllocNull++;
+        }
+#endif
     }
 
     if (layer->note != NULL && layer->note->parentLayer == layer) {
