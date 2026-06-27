@@ -13,11 +13,9 @@
 // ---------------------------------------------------------------------------
 // EU audio debug logging (temporary diagnostic instrumentation)
 // Writes to "eu_audio_debug.log" in the current working directory.
+// gCurrAudioFrameDmaCount comes from data.h; gSeqLoadStatus/gBankLoadStatus
+// from heap.h (both already included above).
 // ---------------------------------------------------------------------------
-extern volatile s32 gCurrAudioFrameDmaCount;
-extern u8 gSeqLoadStatus[0x100];
-extern u8 gBankLoadStatus[0x40];
-
 static FILE *sEuAudioLog = NULL;
 
 void eu_audio_log(const char *fmt, ...) {
